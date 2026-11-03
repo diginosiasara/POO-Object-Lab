@@ -26,6 +26,21 @@
     else e.append(c.nodeType ? c : document.createTextNode(String(c)));
   }
   function vaciar(e) { while (e.firstChild) e.removeChild(e.firstChild); return e; }
+  function anunciar(t) {
+    var a = document.getElementById('anuncios');
+    if (!a) return;
+    a.textContent = '';
+    setTimeout(function () { a.textContent = t; }, 60);
+  }
+  var primeraVista = true;
+  /* Tras cambiar de vista, el foco va al título y se anuncia (lectores de pantalla) */
+  function foco() {
+    if (primeraVista) { primeraVista = false; return; }
+    var t = principal.querySelector('h1');
+    if (t) { t.setAttribute('tabindex', '-1'); t.focus({ preventScroll: true }); }
+    anunciar(document.title);
+  }
+  window.PortafolioA11y = { anunciar: anunciar };
   function sinCodigo(a) { return (a || '').replace('Actividad ', 'A'); }
 
   /* ---------- acceso a datos (servidor Java en vivo o datos exportados) ---------- */
@@ -63,7 +78,7 @@
       r.setAttribute('data-tema', n);
       try { localStorage.setItem('tema', n); } catch (e) { /* sin almacenamiento: no pasa nada */ }
     });
-    document.getElementById('pie-autora').textContent = info.autora + ' · ' + info.formacion;
+    document.getElementById('pie-autora').textContent = '© ' + info.autora + ' · ' + info.nombre + ', bajo la marca registrada ' + info.marca.nombre + ' (OEPM, marca n.º ' + info.marca.numero + ')';
   }
   document.addEventListener('click', function (ev) {
     var a = ev.target.closest ? ev.target.closest('[data-ir]') : null;
@@ -76,31 +91,39 @@
   /* ---------- enrutado ---------- */
   function ruta() {
     var m = location.hash.replace(/^#\/?/, '').split('/');
-    if (m[0] === 'ej' && m[1]) pintarEjercicio(decodeURIComponent(m[1]), m[2] || 'ejecucion');
+    if (m[0] === 'marca') pintarMarca();
+    else if (m[0] === 'ej' && m[1]) pintarEjercicio(decodeURIComponent(m[1]), m[2] || 'ejecucion');
     else pintarInicio();
   }
   window.addEventListener('hashchange', function () { window.scrollTo(0, 0); ruta(); });
 
   /* ---------- portada ---------- */
   function pintarInicio() {
-    document.title = 'Portafolio de ejercicios Java · ' + info.autora;
+    document.title = info.nombre + ' · Portafolio de ejercicios Java · ' + info.autora;
     var interactivos = lista.filter(function (e) { return e.interactivo; }).length;
     var plano = h('div', { class: 'uml-wrap' }, h('span', { class: 'mono' }, 'Dibujando el diagrama…'));
+    var ufs = info.ufs.map(function (u) { return u.id; }).join(' y ');
     var hero = h('section', { class: 'hero' },
       h('div', null,
-        h('p', { class: 'kicker' }, 'Portafolio de ejercicios · ' + info.ufs.map(function (u) { return u.id; }).join(' y ')),
-        h('h1', null, 'Java que se ejecuta ', h('span', { class: 'resalte' }, 'delante de ti'), '.'),
-        h('p', { class: 'lead' }, info.total + ' ejercicios de orientación a objetos, desarrollo web y bases de datos, adaptados a Java. ' +
+        h('p', { class: 'kicker' }, 'Portafolio de ejercicios · ' + ufs),
+        h('h1', { 'aria-label': 'POO Object Lab' },
+          h('span', { class: 'h-poo', 'aria-hidden': 'true' }, 'POO'), h('span', { class: 'h-bar', 'aria-hidden': 'true' }, '|'),
+          h('span', { class: 'h-obj', 'aria-hidden': 'true' }, 'Object Lab')),
+        h('p', { class: 'lema' }, info.lema),
+        h('p', { class: 'lead' }, h('strong', null, 'Java que se ejecuta delante de ti. '),
+          info.total + ' ejercicios de orientación a objetos, desarrollo web y bases de datos, adaptados a Java. ' +
           (EST ? 'Cada uno muestra la salida real de su código con varios casos de prueba.' : 'Cada uno se ejecuta con su código real y puedes probarlo con tus propios datos.')),
         h('div', { class: 'acciones' },
           h('a', { class: 'btn', href: '#ejercicios', 'data-ir': 'ejercicios' }, 'Ver los ejercicios'),
           h('a', { class: 'btn sec', href: '#/ej/uf2404_ud3a1' }, 'Empezar por la herencia')),
-        h('div', { class: 'cajetin' }, h('dl', null,
-          h('dt', null, 'Autora'), h('dd', null, info.autora),
-          h('dt', null, 'Formación'), h('dd', null, info.formacion),
-          h('dt', null, 'Unidades'), h('dd', null, info.ufs.map(function (u) { return u.id; }).join(' · ')),
-          h('dt', null, 'Ejercicios'), h('dd', null, info.total + ' (' + interactivos + (EST ? ' con casos de prueba)' : ' interactivos)')),
-          h('dt', null, 'Plataforma'), h('dd', null, info.java + ' · JDBC · H2')))),
+        h('div', { class: 'cajetin' },
+          h('div', { class: 'cajetin-logo' }, h('img', { src: 'img/poo-object-lab.png', alt: '', width: '150', height: '169' })),
+          h('dl', null,
+            h('dt', null, 'Autoría'), h('dd', null, info.autora),
+            h('dt', null, 'Marca'), h('dd', null, h('a', { href: '#/marca' }, info.marca.nombre + ' · n.º ' + info.marca.numero)),
+            h('dt', null, 'Formación'), h('dd', null, info.formacion),
+            h('dt', null, 'Ejercicios'), h('dd', null, info.total + ' (' + interactivos + (EST ? ' con casos de prueba)' : ' interactivos)')),
+            h('dt', null, 'Plataforma'), h('dd', null, info.java + ' · JDBC · H2')))),
       h('div', { class: 'plano' }, plano,
         h('div', { class: 'plano-cap' },
           h('span', null, 'Diagrama de clases dibujado a partir de las clases Java reales, por reflexión.'),
@@ -131,6 +154,7 @@
       h('div', { class: 'seccion-t', id: 'ejercicios', tabindex: '-1' }, h('h2', null, 'Los ejercicios')),
       filtros, cont);
     pintarLista(cont, contador);
+    foco();
 
     getFicha('uf2404_ud3a1').then(function (f) {
       if (f.uml) vaciar(plano).append(Uml.dibujar(f.uml, { anima: true, titulo: 'Jerarquía Vehiculo, Coche y Bicicleta' }));
@@ -178,7 +202,7 @@
   }
 
   function montarEjercicio(f, i, tabInicial) {
-    document.title = f.titulo + ' · Portafolio Java';
+    document.title = f.titulo + ' · ' + info.nombre;
     var defs = [['ejecucion', 'Ejecución', function () { return panelEjecucion(f); }]];
     if (f.archivos.length || f.originales.length) defs.push(['codigo', 'Código', function () { return panelCodigo(f); }]);
     if (f.uml) defs.push(['diagrama', 'Diagrama UML', function () { return panelDiagrama(f); }]);
@@ -194,7 +218,7 @@
         var sel = d[0] === clave;
         botones[d[0]].setAttribute('aria-selected', String(sel));
         botones[d[0]].tabIndex = sel ? 0 : -1;
-        if (sel && !paneles[d[0]]) { paneles[d[0]] = h('div', { class: 'panel-tab', role: 'tabpanel', id: 'p-' + d[0] }, d[2]()); zona.append(paneles[d[0]]); }
+        if (sel && !paneles[d[0]]) { paneles[d[0]] = h('div', { class: 'panel-tab', role: 'tabpanel', id: 'p-' + d[0], 'aria-labelledby': 't-' + d[0] }, d[2]()); zona.append(paneles[d[0]]); }
         if (paneles[d[0]]) paneles[d[0]].hidden = !sel;
       });
       history.replaceState(null, '', '#/ej/' + f.id + (clave === 'ejecucion' ? '' : '/' + clave));
@@ -224,6 +248,7 @@
         ant ? h('a', { href: '#/ej/' + ant.id }, h('small', null, '← Anterior'), h('strong', null, ant.titulo)) : h('span'),
         sig ? h('a', { class: 'sig', href: '#/ej/' + sig.id }, h('small', null, 'Siguiente →'), h('strong', null, sig.titulo)) : null));
     mostrar(activa);
+    foco();
   }
 
   /* ---------- pestaña: ejecución ---------- */
@@ -244,11 +269,15 @@
         entradas[c.nombre].fila.hidden = entradas[p[0]].input.value !== p.slice(1).join('=');
       });
     }
-    function correr(idx) {
+    function correr(idx, avisar) {
       vaciar(res).append(h('div', { class: 'cargando-res' }, 'Ejecutando en Java…'));
       ejecutar(f, f.campos.length ? valores() : {}, idx).then(function (r) {
         if (!r) throw new Error('sin datos');
         pintarResultado(res, r, f);
+        if (avisar) {
+          var v = (r.secciones || []).filter(function (x) { return x.tipo === 'veredicto'; })[0];
+          anunciar('Resultado actualizado. ' + (v ? v.texto : (r.secciones || []).length + ' bloques de resultado.'));
+        }
       }).catch(function () {
         vaciar(res).append(h('div', { class: 'veredicto mal' }, h('span', null, '✕'), h('span', null, 'No se pudo ejecutar. ¿Sigue en marcha el servidor Java?')));
       });
@@ -259,20 +288,21 @@
       f.campos.forEach(function (c) { if (p[c.nombre] != null) entradas[c.nombre].input.value = p[c.nombre]; });
       botonesEsc.forEach(function (b, k) { b.setAttribute('aria-pressed', String(k === idx)); });
       visibilidad();
-      correr(idx);
+      correr(idx, true);
     }
 
     if (f.campos.length) {
-      var form = h('form', { class: 'formulario', onsubmit: function (ev) { ev.preventDefault(); if (!EST) { botonesEsc.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); }); correr(activo); } } });
+      var form = h('form', { class: 'formulario', onsubmit: function (ev) { ev.preventDefault(); if (!EST) { botonesEsc.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); }); correr(activo, true); } } });
       if (f.escenarios.length > 1) {
-        var esc = h('div', { class: 'esc' });
+        var esc = h('div', { class: 'esc', role: 'group', 'aria-label': 'Casos de prueba' });
         f.escenarios.forEach(function (e, k) {
           var b = h('button', { type: 'button', 'aria-pressed': String(k === 0) }, e.nombre);
           b.addEventListener('click', function () { elegir(k); });
           botonesEsc.push(b); esc.append(b);
         });
-        form.append(h('h3', null, 'Casos de prueba'), esc);
+        form.append(esc);
       }
+      form.insertBefore(h('h2', null, f.escenarios.length > 1 ? 'Casos de prueba' : 'Parámetros'), form.firstChild);
       f.campos.forEach(function (c, k) {
         var id = 'c-' + f.id + '-' + k, input;
         if (c.tipo === 'select') input = h('select', { id: id }, c.opciones.map(function (o) { return h('option', { value: o }, o); }));
@@ -298,13 +328,13 @@
 
   /* ---------- pintar resultados ---------- */
   function pintarResultado(res, r, f) {
-    vaciar(res);
+    vaciar(res).append(h('h2', { class: 'solo-lector' }, 'Resultados'));
     var secs = r.secciones || [];
     var consolaPrimero = !f.interactivo || secs.every(function (s) { return s.tipo === 'veredicto'; });
     var consola = r.consola && r.consola.trim() ? h('section', { class: 'res-sec' },
       h('div', { class: 'consola' },
         h('header', null, h('span', null, consolaPrimero ? 'salida de consola' : 'salida del programa original (main)'), h('span', null, 'System.out')),
-        h('pre', null, r.consola.replace(/\s+$/, '')))) : null;
+        h('pre', { tabindex: '0', 'aria-label': 'Salida de consola' }, r.consola.replace(/\s+$/, '')))) : null;
     if (consolaPrimero && consola) res.append(consola);
     secs.forEach(function (s) {
       var fn = RENDER[s.tipo];
@@ -313,7 +343,7 @@
       res.append(h('section', { class: 'res-sec' }, s.titulo && s.tipo !== 'consulta' ? h('h3', null, s.titulo) : null, s.tipo === 'consulta' ? h('h3', null, s.titulo) : null, nodo));
     });
     if (!consolaPrimero && consola) res.append(consola);
-    if (!res.children.length) res.append(h('p', { class: 'vacio' }, 'Sin salida.'));
+    if (res.children.length <= 1) res.append(h('p', { class: 'vacio' }, 'Sin salida.'));
   }
 
   function celda(v) {
@@ -321,13 +351,13 @@
     var s = String(v);
     return h('td', { class: /^-?\d+([.,]\d+)?$/.test(s) ? 'num' : '' }, s);
   }
-  function tabla(cols, filas) {
-    return h('div', { class: 'tabla-wrap' }, h('table', null,
+  function tabla(cols, filas, cap) {
+    return h('div', { class: 'tabla-wrap' }, h('table', null, cap ? h('caption', { class: 'solo-lector' }, cap) : null,
       h('thead', null, h('tr', null, cols.map(function (c) { return h('th', { scope: 'col' }, c); }))),
       h('tbody', null, filas.map(function (fila) { return h('tr', null, fila.map(celda)); }))));
   }
   function sqlResaltado(sql) {
-    var pre = h('pre', { class: 'sql' });
+    var pre = h('pre', { class: 'sql', tabindex: '0', 'aria-label': 'Sentencia SQL' });
     Resaltado.lineas(sql, 'q.sql').forEach(function (ln, i) {
       if (i) pre.append('\n');
       ln.forEach(function (t) { pre.append(t[0] ? h('span', { class: 't-' + t[0] }, t[1]) : t[1]); });
@@ -336,7 +366,7 @@
   }
 
   var RENDER = {
-    tabla: function (s) { return tabla(s.columnas, s.filas); },
+    tabla: function (s) { return tabla(s.columnas, s.filas, s.titulo); },
     objetos: function (s) {
       return h('div', { class: 'objetos' }, s.items.map(function (o) {
         var dl = h('dl');
@@ -384,7 +414,7 @@
     consulta: function (s) {
       var d = h('div', { class: 'res-sec' }, sqlResaltado(s.sql));
       if (s.nota) d.append(h('p', { class: 'nota-sql' }, s.nota));
-      else d.append(s.filas.length ? tabla(s.columnas, s.filas) : h('p', { class: 'nulo' }, 'La consulta no devuelve filas.'));
+      else d.append(s.filas.length ? tabla(s.columnas, s.filas, s.titulo) : h('p', { class: 'nulo' }, 'La consulta no devuelve filas.'));
       return d;
     }
   };
@@ -436,12 +466,27 @@
     dependencia: 'Dependencia: línea discontinua con flecha abierta',
     claseAsociacion: 'Clase de asociación: línea discontinua hacia las dos clases que une'
   };
+  var FRASE_REL = { herencia: ' hereda de ', realizacion: ' implementa ', asociacion: ' se asocia con ', agregacion: ' agrega a ',
+    composicion: ' se compone de ', dependencia: ' depende de ', claseAsociacion: ' (clase de asociación) se une a ' };
+  function descripcionUml(u) {
+    var cl = h('ul'), rl = h('ul');
+    u.clases.forEach(function (c) {
+      var p = [c.titulo + ', ' + c.tipo];
+      if (c.atributos.length) p.push('atributos: ' + c.atributos.join('; '));
+      if (c.metodos.length) p.push('métodos: ' + c.metodos.join('; '));
+      cl.append(h('li', null, p.join('. ') + '.'));
+    });
+    u.relaciones.forEach(function (r) { rl.append(h('li', null, r.de + (FRASE_REL[r.tipo] || ' se relaciona con ') + r.a + (r.etiqueta ? ' (' + r.etiqueta + ')' : '') + '.')); });
+    return h('details', { class: 'qa alt-uml' }, h('summary', null, 'Descripción textual del diagrama (para lectores de pantalla)'),
+      h('div', { class: 'alt-cuerpo' }, h('h2', null, 'Clases'), cl, h('h2', null, 'Relaciones'), rl.children.length ? rl : h('p', null, 'No hay relaciones entre estas clases.')));
+  }
   function panelDiagrama(f) {
     var tipos = {};
     f.uml.relaciones.forEach(function (r) { tipos[r.tipo] = true; });
     return h('div', null,
       h('div', { class: 'uml-scroll' }, Uml.dibujar(f.uml, { titulo: 'Diagrama de clases de ' + f.titulo })),
       h('div', { class: 'leyenda' }, Object.keys(tipos).map(function (t) { return h('span', null, LEYENDA[t] || t); })),
+      descripcionUml(f.uml),
       h('p', { class: 'leyenda' }, 'Los atributos y métodos se leen por reflexión (java.lang.reflect) de las clases compiladas; los getters y setters se resumen.'));
   }
 
@@ -458,6 +503,35 @@
   }
   function panelNotas(f) {
     return h('div', null, h('ul', { class: 'lista-notas' }, f.notas.map(function (n) { return h('li', null, n); })));
+  }
+
+  /* ---------- autoría y marca ---------- */
+  function pintarMarca() {
+    var m = info.marca;
+    document.title = 'Autoría y marca · ' + info.nombre;
+    function filas(pares) {
+      var dl = h('dl', { class: 'kv' });
+      pares.forEach(function (p) { dl.append(h('dt', null, p[0]), h('dd', null, p[1])); });
+      return dl;
+    }
+    principal.replaceChildren(
+      h('a', { class: 'volver', href: '#/' }, '← Portafolio'),
+      h('header', { class: 'marca-cab' },
+        h('div', null,
+          h('p', { class: 'kicker' }, 'Autoría'),
+          h('h1', null, 'Autoría y marca'),
+          h('p', { class: 'lead' }, 'Este portafolio es obra de ' + info.autora + ' y se publica bajo la marca registrada ' + m.nombre + '.')),
+        h('div', { class: 'placa-logo' }, h('img', { src: 'img/poo-object-lab.png', alt: info.nombre + '. ' + info.lema, width: '240', height: '271' }))),
+      h('section', { class: 'res-sec', 'aria-labelledby': 'h-proyecto' }, h('h2', { class: 'bloque-t', id: 'h-proyecto' }, 'El proyecto'),
+        filas([['Nombre', info.nombre], ['Lema', info.lema], ['Autoría', info.autora], ['Formación', info.formacion]])),
+      h('section', { class: 'res-sec', 'aria-labelledby': 'h-marca' }, h('h2', { class: 'bloque-t', id: 'h-marca' }, 'Marca registrada'),
+        filas([['Marca', m.nombre], ['Marca n.º', m.numero], ['Titular', m.titular], ['Tipo de distintivo', m.distintivo], ['Modalidad', m.modalidad],
+          ['Fecha de presentación', m.presentacion], ['Fecha de concesión', m.concesion], ['Oficina', m.oficina], ['Normativa', m.ley],
+          ['Vigencia indicada en el título', m.vigencia], ['Clase', m.clase + ' (servicios científicos y tecnológicos)']])),
+      h('details', { class: 'qa servicios' }, h('summary', null, 'Servicios protegidos (clase ' + m.clase + ')'),
+        h('ul', null, m.servicios.map(function (x) { return h('li', null, x); }))),
+      h('p', { class: 'nota-marca' }, 'Datos transcritos del título de registro de marca expedido por la Oficina Española de Patentes y Marcas.'));
+    foco();
   }
 
   /* ---------- arranque ---------- */
