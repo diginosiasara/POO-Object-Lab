@@ -4,7 +4,7 @@
   var EST = window.PORTAFOLIO_ESTATICO || null;     // presente solo en la versión estática exportada
   var principal = document.getElementById('principal');
   var info = null, lista = [], fichas = {};
-  var filtro = { uf: 'todos', tipo: 'todos', q: '' };
+  var filtro = { uf: 'todos', tipo: 'todos', q: '', proyecto: false };
 
   /* ---------- utilidades ---------- */
   function h(tag, props) {
@@ -60,7 +60,10 @@
     return p.then(function (f) { fichas[id] = f; return f; });
   }
   function ejecutar(f, params, idx) {
-    if (EST) return Promise.resolve(EST.resultados[f.id + '#' + idx]);
+    if (EST) {
+      if (window.Motor && window.Motor.soporta(EST, f.id)) return window.Motor.ejecutar(EST, f.id, params);   // réplica en JavaScript
+      return Promise.resolve(EST.resultados[f.id + '#' + idx]);
+    }
     return api('api/ejecutar/' + encodeURIComponent(f.id), {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params)
     });
@@ -69,9 +72,9 @@
   /* ---------- tema y modo ---------- */
   function iniciarCabecera() {
     var modo = document.getElementById('modo');
-    modo.textContent = EST ? 'Versión estática' : 'Java en vivo';
+    modo.textContent = EST ? 'Modo navegador' : 'Java en vivo';
     if (EST) modo.className = 'modo estatico';
-    modo.title = EST ? 'Resultados generados por Java al exportar el sitio' : 'Cada ejecución se hace ahora mismo en el servidor Java';
+    modo.title = EST ? 'Los ejercicios se ejecutan en tu navegador con una réplica en JavaScript de la lógica Java, verificada contra los resultados reales de Java. Con ./run.sh se ejecuta el Java real.' : 'Cada ejecución se hace ahora mismo en el servidor Java';
     document.getElementById('tema').addEventListener('click', function () {
       var r = document.documentElement;
       var n = r.getAttribute('data-tema') === 'oscuro' ? 'claro' : 'oscuro';
@@ -89,10 +92,32 @@
   });
 
   /* ---------- enrutado ---------- */
+  function consultaHash(q) {
+    var o = {};
+    (q || '').split('&').forEach(function (par) {
+      if (!par) return;
+      var i = par.indexOf('='), dec = function (x) { try { return decodeURIComponent(x.replace(/\+/g, ' ')); } catch (e) { return x; } };
+      o[dec(i < 0 ? par : par.slice(0, i))] = i < 0 ? '' : dec(par.slice(i + 1));
+    });
+    return o;
+  }
+  /* Abre la demostración en una ventana nueva (si el navegador la bloquea, se muestra en esta misma). */
+  function abrirDemo(id, params) {
+    var q = params ? '?' + Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&') : '';
+    var url = location.href.split('#')[0] + '#/demo/' + encodeURIComponent(id) + q;
+    var w = window.open(url, '_blank');
+    if (w) { try { w.opener = null; } catch (e) { /* nada */ } anunciar('Demostración abierta en una ventana nueva.'); }
+    else location.href = url;
+  }
+
   function ruta() {
-    var m = location.hash.replace(/^#\/?/, '').split('/');
-    if (m[0] === 'marca') pintarMarca();
-    else if (m[0] === 'ej' && m[1]) pintarEjercicio(decodeURIComponent(m[1]), m[2] || 'ejecucion');
+    var crudo = location.hash.replace(/^#\/?/, ''), q = '', qi = crudo.indexOf('?');
+    if (qi >= 0) { q = crudo.slice(qi + 1); crudo = crudo.slice(0, qi); }
+    var m = crudo.split('/');
+    document.body.classList.toggle('modo-demo', m[0] === 'demo');
+    if (m[0] === 'demo' && m[1]) pintarDemo(decodeURIComponent(m[1]), consultaHash(q));
+    else if (m[0] === 'marca') pintarMarca();
+    else if (m[0] === 'ej' && m[1]) pintarEjercicio(decodeURIComponent(m[1]), m[2] || '');
     else pintarInicio();
   }
   window.addEventListener('hashchange', function () { window.scrollTo(0, 0); ruta(); });
@@ -112,7 +137,7 @@
         h('p', { class: 'lema' }, info.lema),
         h('p', { class: 'lead' }, h('strong', null, 'Java que se ejecuta delante de ti. '),
           info.total + ' ejercicios de orientación a objetos, desarrollo web y bases de datos, adaptados a Java. ' +
-          (EST ? 'Cada uno muestra la salida real de su código con varios casos de prueba.' : 'Cada uno se ejecuta con su código real y puedes probarlo con tus propios datos.')),
+          'Cada uno se ejecuta en esta misma página y puedes probarlo con tus propios datos.'),
         h('div', { class: 'acciones' },
           h('a', { class: 'btn', href: '#ejercicios', 'data-ir': 'ejercicios' }, 'Ver los ejercicios'),
           h('a', { class: 'btn sec', href: '#/ej/uf2404_ud3a1' }, 'Empezar por la herencia')),
@@ -122,7 +147,7 @@
             h('dt', null, 'Autoría'), h('dd', null, info.autora),
             h('dt', null, 'Marca'), h('dd', null, h('a', { href: '#/marca' }, info.marca.nombre + ' · n.º ' + info.marca.numero)),
             h('dt', null, 'Formación'), h('dd', null, info.formacion),
-            h('dt', null, 'Ejercicios'), h('dd', null, info.total + ' (' + interactivos + (EST ? ' con casos de prueba)' : ' interactivos)')),
+            h('dt', null, 'Ejercicios'), h('dd', null, info.total + ' (' + interactivos + ' interactivos)'),
             h('dt', null, 'Plataforma'), h('dd', null, info.java + ' · JDBC · H2')))),
       h('div', { class: 'plano' }, plano,
         h('div', { class: 'plano-cap' },
@@ -149,6 +174,9 @@
     var filtros = h('div', { class: 'filtros' },
       grupo('uf', [['todos', 'Todas'], ['UF2404', 'UF2404'], ['UF2405', 'UF2405']]),
       grupo('tipo', [['todos', 'Todos los tipos'], ['Caso práctico', 'Casos prácticos'], ['Teórico-práctico', 'Teórico-prácticos']]),
+      h('button', { type: 'button', class: 'conmutador', 'aria-pressed': String(filtro.proyecto), onclick: function (ev) {
+        filtro.proyecto = !filtro.proyecto; ev.currentTarget.setAttribute('aria-pressed', String(filtro.proyecto)); pintarLista(cont, contador);
+      } }, 'Con proyecto web'),
       buscar, contador);
     principal.replaceChildren(hero,
       h('div', { class: 'seccion-t', id: 'ejercicios', tabindex: '-1' }, h('h2', null, 'Los ejercicios')),
@@ -166,6 +194,7 @@
     var vis = lista.filter(function (e) {
       if (filtro.uf !== 'todos' && e.uf !== filtro.uf) return false;
       if (filtro.tipo !== 'todos' && e.tipo !== filtro.tipo) return false;
+      if (filtro.proyecto && !e.proyecto) return false;
       if (q && (e.titulo + ' ' + e.resumen + ' ' + e.conceptos.join(' ') + ' ' + e.tecnologias.join(' ')).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
@@ -184,7 +213,7 @@
   function tarjeta(e) {
     return h('a', { class: 'ficha', href: '#/ej/' + e.id },
       h('div', { class: 'id' }, h('span', null, e.ud + ' · ' + sinCodigo(e.actividad)),
-        h('span', { class: e.interactivo ? 'etiq-vivo' : '' }, e.interactivo ? (EST ? 'casos' : 'interactivo') : e.tipo === 'Caso práctico' ? 'práctico' : 'teórico')),
+        h('span', { class: e.interactivo || e.proyecto ? 'etiq-vivo' : '' }, e.proyecto ? 'proyecto web' : e.interactivo ? 'interactivo' : e.tipo === 'Caso práctico' ? 'práctico' : 'teórico')),
       h('h4', null, e.titulo), h('p', { class: 'res' }, e.resumen),
       h('div', { class: 'chips' }, e.conceptos.slice(0, 3).map(function (c) { return h('span', { class: 'chip' }, c); })));
   }
@@ -204,11 +233,13 @@
   function montarEjercicio(f, i, tabInicial) {
     document.title = f.titulo + ' · ' + info.nombre;
     var defs = [['ejecucion', 'Ejecución', function () { return panelEjecucion(f); }]];
+    if (f.proyecto) defs.unshift(['proyecto', 'Proyecto en marcha', function () { return panelProyecto(f); }]);
+    var porDefecto = defs[0][0];
     if (f.archivos.length || f.originales.length) defs.push(['codigo', 'Código', function () { return panelCodigo(f); }]);
     if (f.uml) defs.push(['diagrama', 'Diagrama UML', function () { return panelDiagrama(f); }]);
     if (f.enunciado.length || f.teoria.length) defs.push(['teoria', 'Enunciado y teoría', function () { return panelTeoria(f); }]);
     if (f.notas.length) defs.push(['adaptacion', 'Adaptación a Java', function () { return panelNotas(f); }]);
-    var activa = defs.some(function (d) { return d[0] === tabInicial; }) ? tabInicial : 'ejecucion';
+    var activa = defs.some(function (d) { return d[0] === tabInicial; }) ? tabInicial : porDefecto;
 
     var botones = {}, paneles = {};
     var barra = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Secciones del ejercicio' });
@@ -221,7 +252,7 @@
         if (sel && !paneles[d[0]]) { paneles[d[0]] = h('div', { class: 'panel-tab', role: 'tabpanel', id: 'p-' + d[0], 'aria-labelledby': 't-' + d[0] }, d[2]()); zona.append(paneles[d[0]]); }
         if (paneles[d[0]]) paneles[d[0]].hidden = !sel;
       });
-      history.replaceState(null, '', '#/ej/' + f.id + (clave === 'ejecucion' ? '' : '/' + clave));
+      history.replaceState(null, '', '#/ej/' + f.id + (clave === porDefecto ? '' : '/' + clave));
     }
     defs.forEach(function (d, k) {
       var b = h('button', { type: 'button', role: 'tab', 'aria-controls': 'p-' + d[0], id: 't-' + d[0] }, d[1]);
@@ -242,6 +273,9 @@
         h('div', { class: 'meta' }, h('span', { class: 'etq uf' }, f.uf), h('span', { class: 'etq' }, f.ud + ' · ' + f.actividad), h('span', { class: 'etq' }, f.tipo),
           f.tecnologias.map(function (t) { return h('span', { class: 'etq' }, t); })),
         h('h1', null, f.titulo), h('p', { class: 'res' }, f.resumen),
+        h('div', { class: 'acciones demo-acc-cab' },
+          h('button', { type: 'button', class: 'btn', onclick: function () { abrirDemo(f.id); } }, 'Ver demostración ↗'),
+          h('span', { class: 'nota-demo' }, f.proyecto ? 'Se abre en una ventana nueva con la aplicación funcionando.' : 'Se abre en una ventana nueva con el ejercicio funcionando como una web.')),
         h('div', { class: 'chips' }, f.conceptos.map(function (c) { return h('span', { class: 'chip' }, c); }))),
       barra, zona,
       h('nav', { class: 'nav-ej', 'aria-label': 'Otros ejercicios' },
@@ -251,8 +285,203 @@
     foco();
   }
 
+  /* ---------- pestaña: proyecto en marcha ---------- */
+  // Código que se inyecta en las páginas de la versión estática: convierte clics y envíos de formulario en mensajes a la web.
+  var SHIM = [
+    "(function(){",
+    "function enviar(m){ parent.postMessage(m,'*'); }",
+    "document.addEventListener('click',function(e){",
+    " var a=e.target.closest&&e.target.closest('a[href]'); if(!a) return; var h=a.getAttribute('href');",
+    " if(/^https?:/i.test(h)){ e.preventDefault(); window.open(h,'_blank','noopener'); return; }",
+    " if(/^(mailto:|tel:|javascript:|#)/i.test(h)) return;",
+    " e.preventDefault(); enviar({poo:'nav',metodo:'GET',destino:h}); });",
+    "document.addEventListener('submit',function(e){",
+    " if(e.defaultPrevented) return; e.preventDefault(); var f=e.target, o={};",
+    " new FormData(f).forEach(function(v,k){ o[k]=String(v); });",
+    " enviar({poo:'nav',metodo:(f.getAttribute('method')||'GET').toUpperCase(),destino:f.getAttribute('action')||'',params:o}); });",
+    "})();"
+  ].join('\n');
+
+  function claveNav(metodo, destino, params) {
+    var q = {}, i = destino.indexOf('?'), ruta = i < 0 ? destino : destino.slice(0, i);
+    if (i >= 0) destino.slice(i + 1).split('&').forEach(function (par) {
+      if (!par) return;
+      var j = par.indexOf('=');
+      var dec = function (x) { try { return decodeURIComponent(x.replace(/\+/g, ' ')); } catch (e) { return x; } };
+      q[dec(j < 0 ? par : par.slice(0, j))] = j < 0 ? '' : dec(par.slice(j + 1));
+    });
+    Object.keys(params || {}).forEach(function (k) { q[k] = params[k]; });
+    ruta = ruta.replace(/^(\.\/|\/)+/, '');
+    return metodo + '|' + ruta + '|' + Object.keys(q).sort().map(function (k) { return k + '=' + q[k]; }).join('&');
+  }
+
+  /* Incrusta CSS, JS e imágenes en la página (un marco aislado no puede cargar archivos locales desde file://) y añade el interceptor. */
+  function prepararHtml(html, id) {
+    var rec = (EST.apps && EST.apps[id] || {}).recursos || {};
+    var norm = function (p) { return p.replace(/^(\.\/|\/)+/, ''); };
+    var out = html.replace(/<link\b[^>]*?href=["']([^"']+)["'][^>]*>/gi, function (m, h) {
+      var t = rec[norm(h)];
+      return t != null && /stylesheet/i.test(m) ? '<style>' + t + '</style>' : m;
+    }).replace(/<script\b([^>]*?)src=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, function (m, a, h) {
+      var t = rec[norm(h)];
+      return t != null ? '<script>' + t.replace(/<\/script/gi, '<\\/script') + '<\/script>' : m;
+    }).replace(/(<img\b[^>]*?src=["'])([^"']+)(["'])/gi, function (m, a, h, c) {
+      var t = rec[norm(h)];
+      return t != null ? a + 'data:' + (/\.svg$/i.test(h) ? 'image/svg+xml' : 'text/plain') + ';charset=utf-8,' + encodeURIComponent(t) + c : m;
+    });
+    var script = '<script>' + SHIM + '<\/script>';
+    return /<\/body>/i.test(out) ? out.replace(/<\/body>/i, function () { return script + '</body>'; }) : out + script;
+  }
+
+  var NO_DISPONIBLE = '<!DOCTYPE html><meta charset="utf-8"><body style="font:16px/1.5 system-ui,sans-serif;padding:28px;color:#1a2433;background:#fff">' +
+    '<h2 style="margin-top:0">No disponible en el modo navegador</h2><p>Esta acción no está entre las que puede resolver la versión sin servidor.</p>' +
+    '<p>Prueba los <strong>casos de prueba</strong> de arriba o navega desde la portada de la aplicación.</p></body>';
+
+  function panelProyecto(f, opc) {
+    var demo = !!(opc && opc.demo);
+    var pr = f.proyecto, base = 'app/' + encodeURIComponent(f.id) + '/';
+    var paginas = EST ? ((EST.apps && EST.apps[f.id] || {}).paginas || {}) : null;
+    var hist = [], pos = -1;
+    var motorApp = (EST && window.Motor && window.Motor.tieneApp(f.id)) ? window.Motor.crearApp(EST, f.id) : null;
+    var iframe = h('iframe', { class: 'marco-app', name: 'marco-' + f.id, title: 'Aplicación de muestra: ' + pr.titulo,
+      sandbox: 'allow-scripts allow-forms allow-modals allow-popups' + (EST ? '' : ' allow-same-origin') });
+    var url = h('input', { class: 'url', type: 'text', readonly: true, 'aria-label': 'Dirección actual de la aplicación', value: '' });
+    var descripcion = h('p', { class: 'caso-desc', 'aria-live': 'polite' }, 'Elige un caso de prueba o navega libremente por la aplicación.');
+    var bAtras = h('button', { type: 'button', class: 'nav-btn', 'aria-label': 'Página anterior', title: 'Atrás' }, '←');
+    var bAdel = h('button', { type: 'button', class: 'nav-btn', 'aria-label': 'Página siguiente', title: 'Adelante' }, '→');
+    var bRec = h('button', { type: 'button', class: 'nav-btn', 'aria-label': 'Recargar la página', title: 'Recargar' }, '↻');
+    var bIni = h('button', { type: 'button', class: 'nav-btn', 'aria-label': 'Ir a la página de inicio de la aplicación', title: 'Inicio' }, '⌂');
+
+    function actualizarBotones() { if (EST) { bAtras.disabled = pos <= 0; bAdel.disabled = pos >= hist.length - 1; } }
+
+    /* --- versión estática: páginas precalculadas --- */
+    function mostrarEst(r, k, sinHistoria) {
+      iframe.srcdoc = prepararHtml(r.html, f.id);
+      url.value = '/app/' + f.id + '/' + r.ruta;
+      if (!sinHistoria) { hist = hist.slice(0, pos + 1); hist.push({ r: r, k: k }); pos = hist.length - 1; }
+      actualizarBotones();
+    }
+    function irEst(metodo, destino, params) {
+      var actual = pos >= 0 ? hist[pos].r.ruta : pr.inicio;
+      var d = destino === '' ? actual : destino;
+      var k = claveNav(metodo, d, params);
+      var origen = motorApp ? motorApp.ir(metodo, d, params)
+        : Promise.resolve(paginas[k] ? { ruta: paginas[k].ruta, codigo: paginas[k].codigo, html: paginas[k].html } : null);
+      return origen.then(function (r) {
+        if (!r) { iframe.srcdoc = NO_DISPONIBLE; anunciar('Acción no disponible en el modo navegador.'); return false; }
+        mostrarEst(r, k, false);
+        anunciar('Página cargada: ' + r.ruta);
+        return true;
+      }, function () { iframe.srcdoc = NO_DISPONIBLE; return false; });
+    }
+
+    /* --- versión en vivo: el servidor Java responde --- */
+    function esperarCarga() {
+      return new Promise(function (resolver) {
+        function fin() { iframe.removeEventListener('load', fin); resolver(); }
+        iframe.addEventListener('load', fin);
+      });
+    }
+    function irVivo(metodo, destino, params) {
+      var espera = esperarCarga();
+      if (metodo === 'GET') {
+        var q = Object.keys(params || {}).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+        iframe.src = base + destino + (q ? (destino.indexOf('?') < 0 ? '?' : '&') + q : '');
+      } else {
+        var form = h('form', { method: 'post', action: base + destino, target: iframe.name, style: 'display:none' });
+        Object.keys(params || {}).forEach(function (k) { form.append(h('input', { type: 'hidden', name: k, value: params[k] })); });
+        document.body.append(form); form.submit(); form.remove();
+      }
+      return espera;
+    }
+    function reiniciarVivo() { return fetch(base + '__reiniciar', { method: 'POST' }).catch(function () { /* sin servidor */ }); }
+
+    iframe.addEventListener('load', function () {
+      if (EST) return;
+      try {
+        var l = iframe.contentWindow.location;
+        url.value = l.pathname + l.search;
+        anunciar('Página cargada: ' + (iframe.contentDocument.title || l.pathname));
+      } catch (e) { /* otro origen */ }
+    });
+
+    /* --- barra de navegación --- */
+    bAtras.addEventListener('click', function () {
+      if (EST) { if (pos > 0) { pos--; mostrarEst(hist[pos].r, hist[pos].k, true); } } else { try { iframe.contentWindow.history.back(); } catch (e) { /* nada */ } }
+    });
+    bAdel.addEventListener('click', function () {
+      if (EST) { if (pos < hist.length - 1) { pos++; mostrarEst(hist[pos].r, hist[pos].k, true); } } else { try { iframe.contentWindow.history.forward(); } catch (e) { /* nada */ } }
+    });
+    bRec.addEventListener('click', function () {
+      if (EST) { if (pos >= 0) mostrarEst(hist[pos].r, hist[pos].k, true); } else { try { iframe.contentWindow.location.reload(); } catch (e) { iframe.src = iframe.src; } }
+    });
+    bIni.addEventListener('click', function () { if (EST) irEst('GET', pr.inicio, {}); else irVivo('GET', pr.inicio, {}); });
+
+    if (EST) {
+      var oyente = function (ev) {
+        if (!document.contains(iframe)) { window.removeEventListener('message', oyente); return; }
+        if (ev.source !== iframe.contentWindow) return;
+        var d = ev.data;
+        if (!d || d.poo !== 'nav') return;
+        irEst(String(d.metodo || 'GET').toUpperCase(), String(d.destino || ''), d.params || {});
+      };
+      window.addEventListener('message', oyente);
+    }
+
+    /* --- casos de prueba --- */
+    var chips = h('div', { class: 'esc', role: 'group', 'aria-label': 'Casos de prueba de la aplicación' });
+    var botones = [];
+    function ejecutarCaso(c, k) {
+      botones.forEach(function (b, j) { b.setAttribute('aria-pressed', String(j === k)); });
+      descripcion.textContent = c.descripcion;
+      if (EST) {
+        if (motorApp) motorApp.reiniciar();
+        hist = []; pos = -1;
+        c.pasos.reduce(function (acc, p) { return acc.then(function () { return irEst(p.metodo, p.ruta, p.params || {}); }); }, Promise.resolve());
+      } else {
+        reiniciarVivo().then(function () {
+          return c.pasos.reduce(function (acc, p) { return acc.then(function () { return irVivo(p.metodo, p.ruta, p.params || {}); }); }, Promise.resolve());
+        });
+      }
+    }
+    pr.casos.forEach(function (c, k) {
+      var b = h('button', { type: 'button', 'aria-pressed': 'false', title: c.descripcion }, c.nombre);
+      b.addEventListener('click', function () { ejecutarCaso(c, k); });
+      botones.push(b); chips.append(b);
+    });
+
+    var reiniciar = (EST && !motorApp) ? null : h('button', { type: 'button', class: 'nav-btn texto' }, 'Reiniciar datos y sesión');
+    if (reiniciar) reiniciar.addEventListener('click', function () {
+      var hecho = EST ? (motorApp.reiniciar(), Promise.resolve()) : reiniciarVivo();
+      hecho.then(function () { botones.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); }); descripcion.textContent = 'Datos y sesión reiniciados.'; anunciar('Datos y sesión reiniciados.'); return EST ? irEst('GET', pr.inicio, {}) : irVivo('GET', pr.inicio, {}); });
+    });
+    var abrir = EST ? null : h('a', { class: 'nav-btn texto', href: base, target: '_blank', rel: 'noopener' }, 'Abrir en otra pestaña ↗');
+
+    setTimeout(function () { if (EST) irEst('GET', pr.inicio, {}); else { iframe.src = base + pr.inicio; } }, 0);
+    actualizarBotones();
+
+    return h('div', { class: 'proyecto' + (demo ? ' en-demo' : '') },
+      demo ? null : h('div', { class: 'proyecto-cab' },
+        h('h2', null, pr.titulo),
+        h('p', null, !EST
+          ? 'Esta es la aplicación original funcionando dentro de la página: cada clic, formulario y sesión los resuelve el servidor Java ahora mismo.'
+          : motorApp ? 'Esta es la aplicación original funcionando dentro de la página: una réplica en JavaScript de los servlets Java (verificada contra Java) atiende cada clic, formulario y sesión en tu navegador.'
+                     : 'Esta es la aplicación original dentro de la página. No cambia con los datos: sus páginas las generó Java al exportar el sitio.')),
+      h(demo ? 'h2' : 'h3', { class: 'bloque-t' }, 'Casos de prueba'), chips, descripcion,
+      EST && motorApp ? h('p', { class: 'nota-modo' }, 'Cada caso de prueba parte de datos nuevos. Lo que hagas se guarda solo en esta ventana y se pierde al cerrarla. El Java real se ejecuta con ./run.sh.') : null,
+      h('div', { class: 'navegador' },
+        h('div', { class: 'navegador-barra' }, bAtras, bAdel, bRec, bIni, url, abrir, reiniciar),
+        iframe),
+      !demo && pr.notas && pr.notas.length ? h('section', { class: 'adapt-proyecto', 'aria-label': 'Cómo se adaptó para verse en la web' },
+        h('h3', { class: 'bloque-t' }, 'Cómo se adaptó para verse en la web'),
+        h('ul', { class: 'lista-notas' }, pr.notas.map(function (n) { return h('li', null, n); }))) : null);
+  }
+
   /* ---------- pestaña: ejecución ---------- */
-  function panelEjecucion(f) {
+  function panelEjecucion(f, ini) {
+    var enDemo = !!ini;
+    var motor = !!(EST && window.Motor && window.Motor.soporta(EST, f.id));
+    var estatico = EST && !motor;
     var res = h('div', { class: 'resultados', 'aria-live': 'polite' });
     var cont = h('div', { class: 'ejec' + (f.campos.length ? '' : ' solo') });
     var entradas = {}, botonesEsc = [], activo = 0;
@@ -292,7 +521,11 @@
     }
 
     if (f.campos.length) {
-      var form = h('form', { class: 'formulario', onsubmit: function (ev) { ev.preventDefault(); if (!EST) { botonesEsc.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); }); correr(activo, true); } } });
+      var form = h('form', { class: 'formulario', onsubmit: function (ev) {
+        ev.preventDefault();
+        if (!enDemo) abrirDemo(f.id, estatico ? { esc: String(activo) } : valores());
+        if (!estatico) { botonesEsc.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); }); correr(activo, true); }
+      } });
       if (f.escenarios.length > 1) {
         var esc = h('div', { class: 'esc', role: 'group', 'aria-label': 'Casos de prueba' });
         f.escenarios.forEach(function (e, k) {
@@ -309,20 +542,29 @@
         else if (c.tipo === 'textarea') input = h('textarea', { id: id, spellcheck: 'false', rows: '6' });
         else input = h('input', { id: id, type: c.tipo, step: c.tipo === 'number' ? 'any' : null, autocomplete: 'off' });
         input.value = c.valor;
-        if (EST) input.disabled = true;
+        if (estatico) input.disabled = true;
         input.addEventListener('input', function () { visibilidad(); botonesEsc.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); }); });
         input.addEventListener('change', visibilidad);
         var fila = h('div', { class: 'campo' }, h('label', { for: id }, c.etiqueta), input, c.ayuda ? h('small', null, c.ayuda) : null);
         entradas[c.nombre] = { input: input, fila: fila };
         form.append(fila);
       });
-      if (EST) form.append(h('p', { class: 'aviso-estatico' }, 'Versión estática: estos son los resultados que generó Java al exportar el sitio. Para probar tus propios datos, arranca el servidor con ./run.sh.'));
-      else form.append(h('button', { class: 'btn', type: 'submit' }, 'Ejecutar en Java'));
+      if (estatico) form.append(h('p', { class: 'aviso-estatico' }, 'Estos son los resultados que generó Java al exportar el sitio.'));
+      if (motor) form.append(h('p', { class: 'nota-modo' }, 'Se ejecuta aquí, en tu navegador, con una réplica en JavaScript del código Java (verificada contra Java). El Java real se ejecuta con ./run.sh.'));
+      if (!(estatico && enDemo)) form.append(h('button', { class: 'btn', type: 'submit' }, enDemo ? 'Actualizar la demostración' : 'Ver demostración ↗'));
       cont.append(form);
       visibilidad();
     }
     cont.append(res);
-    setTimeout(function () { correr(0); }, 0);
+    setTimeout(function () {
+      if (ini && ini.esc > 0 && f.escenarios[ini.esc]) { elegir(ini.esc); return; }
+      if (ini && ini.valores && !estatico) {
+        f.campos.forEach(function (c) { if (ini.valores[c.nombre] != null && entradas[c.nombre]) entradas[c.nombre].input.value = ini.valores[c.nombre]; });
+        botonesEsc.forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
+        visibilidad();
+      }
+      correr(0);
+    }, 0);
     return cont;
   }
 
@@ -503,6 +745,32 @@
   }
   function panelNotas(f) {
     return h('div', null, h('ul', { class: 'lista-notas' }, f.notas.map(function (n) { return h('li', null, n); })));
+  }
+
+  /* ---------- ventana de demostración ---------- */
+  function pintarDemo(id, params) {
+    principal.replaceChildren(h('p', { class: 'cargando' }, 'Preparando la demostración…'));
+    getFicha(id).then(function (f) {
+      document.title = 'Demostración: ' + f.titulo + ' · ' + info.nombre;
+      var valores = {};
+      Object.keys(params).forEach(function (k) { if (k !== 'esc') valores[k] = params[k]; });
+      var esc = parseInt(params.esc, 10);
+      var cuerpo = f.proyecto ? panelProyecto(f, { demo: true })
+                              : panelEjecucion(f, { valores: Object.keys(valores).length ? valores : null, esc: isNaN(esc) ? 0 : esc });
+      var cerrar = h('button', { type: 'button', class: 'btn sec' }, 'Cerrar');
+      cerrar.addEventListener('click', function () {
+        window.close();
+        setTimeout(function () { location.hash = '#/ej/' + f.id; }, 150);   // si la ventana no se puede cerrar, volver al ejercicio
+      });
+      principal.replaceChildren(
+        h('div', { class: 'demo-barra' },
+          h('div', { class: 'demo-tit' }, h('span', { class: 'etq uf' }, 'Demostración'), h('h1', null, f.titulo)),
+          h('div', { class: 'demo-acc' },
+            h('a', { class: 'btn sec', href: '#/ej/' + f.id + '/codigo' }, 'Ver el código'),
+            h('a', { class: 'btn sec', href: '#/ej/' + f.id }, 'Página del ejercicio'), cerrar)),
+        h('div', { class: 'demo-cuerpo' }, cuerpo));
+      foco();
+    }).catch(function () { principal.replaceChildren(h('p', { class: 'vacio' }, 'No se pudo preparar la demostración.')); });
   }
 
   /* ---------- autoría y marca ---------- */
